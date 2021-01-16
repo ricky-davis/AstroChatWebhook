@@ -52,7 +52,7 @@ fn webhook(app_data: State<AppData>, evt: String, mut msg: String, name: String)
         let sample: Vec<_> = app_data.avatar_themes
         .choose_multiple(&mut rng, 1)
         .collect();
-        let name_theme = sample.first().unwrap();
+        let name_theme = sample.first().unwrap().to_string();
         let avatar_url = format!("https://www.tinygraphs.com/squares/{}?theme={}&numcolors=4&size=220&fmt=png", &whname, &name_theme);
         lock.insert(whname.clone(), avatar_url.clone());
     }
@@ -108,28 +108,34 @@ fn main() {
     let my_port = args[3].parse::<u16>().unwrap();
     let discord_url = &args[4];
 
-    let mut emoji_map = HashMap::new();
-    emoji_map.insert('j', ":wave:".to_string());           // Join
-    emoji_map.insert('l', ":x:".to_string());              // Leave
-    emoji_map.insert('s', ":floppy_disk:".to_string());    // Save
-    emoji_map.insert('b', ":recycle:".to_string());        // Backup
-    emoji_map.insert('c', ":speech_balloon:".to_string()); // Chat
-    emoji_map.insert('d', ":bangbang:".to_string());       // CMD
 
-    let avatar_themes = vec![
-        "frogideas".to_string(),
-        "sugarsweets".to_string(),
-        "heatwave".to_string(),
-        "daisygarden".to_string(),
-        "seascape".to_string(),
-        "summerwarmth".to_string(),
-        "bythepool".to_string(),
-        "duskfalling".to_string(),
-        "berrypie".to_string()
+    let mut tem = HashMap::new();
+    tem.insert('j', ":wave:");           // Join
+    tem.insert('l', ":x:");              // Leave
+    tem.insert('s', ":floppy_disk:");    // Save
+    tem.insert('b', ":recycle:");        // Backup
+    tem.insert('c', ":speech_balloon:"); // Chat
+    tem.insert('d', ":bangbang:");       // CMD
+    let emoji_map = tem.into_iter().map( |(key, value)| (key, value.to_string()) ).collect(); // convert from str to String
+
+
+    let tat = vec![
+        "frogideas",
+        "sugarsweets",
+        "heatwave",
+        "daisygarden",
+        "seascape",
+        "summerwarmth",
+        "bythepool",
+        "duskfalling",
+        "berrypie"
         ];
+    let avatar_themes: Vec<String> = tat.into_iter().map(|s| s.to_string()).collect(); // convert from str to String
+
 
 
     let app_data = AppData::new(my_name.clone(),discord_url.clone(), avatar_themes, Mutex::new(HashMap::new()), emoji_map);
+
 
     let main_mount = format!("/{}", my_url);
 
@@ -138,7 +144,9 @@ fn main() {
         .log_level(LoggingLevel::Off)
         .finalize()
         .unwrap();
+
     println!("Running the AstroChatWebhook forwarder..");
     println!("Waiting for input at http://localhost:{}/{}", my_port, my_url);
+    
     rocket::custom(config).manage(app_data).mount(&main_mount, routes![webhook]).launch();
 }
