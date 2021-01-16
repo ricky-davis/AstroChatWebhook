@@ -3,12 +3,7 @@
 
 #[macro_use] extern crate rocket;
 use rocket::State;
-use rocket::config::{Config, Environment};
-
-
-
-#[macro_use] extern crate lazy_static;
-
+use rocket::config::{Config, Environment, LoggingLevel};
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -20,43 +15,11 @@ use rand_pcg::Pcg64;
 
 
 
-
-lazy_static! {
-    
-    static ref AVATAR_THEMES: Vec<&'static str> = vec![
-        "frogideas",
-        "sugarsweets",
-        "heatwave",
-        "daisygarden",
-        "seascape",
-        "summerwarmth",
-        "bythepool",
-        "duskfalling",
-        "berrypie"
-        ];
-    static ref DISCORD_WEBHOOK_AVATAR_DICT: Mutex<HashMap<String, String>> = {
-        let m = HashMap::new();
-        Mutex::new(m)
-    };    
-    static ref DISCORD_WEBHOOK_EMOJI: Mutex<HashMap<char, &'static str>> = {
-        let mut m = HashMap::new();
-        m.insert('j', ":wave:");
-        m.insert('l', ":x:");
-        m.insert('s', ":floppy_disk:");
-        m.insert('b', ":recycle:");
-        m.insert('c', ":speech_balloon:");
-        m.insert('d', ":bangbang:");
-        Mutex::new(m)
-    };    
-}
-
 #[get("/?<evt>&<msg>&<name>")]
 fn webhook(app_data: State<AppData>, evt: String, mut msg: String, name: String) {
-    println!("{} -- {} -- {}", evt, name, msg);
-    
-
-    let mut map = DISCORD_WEBHOOK_AVATAR_DICT.lock().unwrap();
-    let player_name = name.clone();
+    //println!("{} -- {} -- {}", evt, name, msg);
+    let mut whname = name.clone();
+    let mut console_buffer="".to_string();
 
     let dwhd = match evt.as_str(){
         "join" => 'j',
@@ -66,40 +29,36 @@ fn webhook(app_data: State<AppData>, evt: String, mut msg: String, name: String)
         _ => 'z'
     };
 
-    if dwhd == 'j'{
-        msg = format!("{} {}", &player_name, "has joined the server.")
-    }
-    if dwhd == 'l'{
-        msg = format!("{} {}", &player_name, "has left the server.")
+    match dwhd {
+        'j' =>{
+            whname = app_data.my_name.to_string();
+            msg = format!("{} {}", &name, "has joined the server.");
+            console_buffer = format!("{} has joined the server!", &name);
+        },
+        'l' => {
+            whname = app_data.my_name.to_string();
+            msg = format!("{} {}", &name, "has left the server.");
+            console_buffer = format!("{} has left the server!", &name);
+        },
+        'c' => console_buffer = format!("{} said: {}", &whname, &msg),
+        'd' => console_buffer = format!("{} did command: {}", &whname, &msg),
+        _ => ()
+
     }
 
-
-    let whname;
-    if dwhd != 'c' && dwhd != 'd' {
-        whname = app_data.my_name.to_string();
-    }else{
-        whname = player_name.clone();
-    }
-
-    let new_avt;
-    if !map.contains_key(&whname){
+    let mut lock = app_data.avatar_dict.lock().expect("lock shared data");
+    if !lock.contains_key(&whname){
         let mut rng: Pcg64 = Seeder::from(&whname).make_rng();
-        let sample: Vec<_> = AVATAR_THEMES
+        let sample: Vec<_> = app_data.avatar_themes
         .choose_multiple(&mut rng, 1)
         .collect();
         let name_theme = sample.first().unwrap();
-
         let avatar_url = format!("https://www.tinygraphs.com/squares/{}?theme={}&numcolors=4&size=220&fmt=png", &whname, &name_theme);
-        map.insert(whname.clone(), avatar_url.clone());
+        lock.insert(whname.clone(), avatar_url.clone());
     }
 
-    new_avt = map.get(&whname).unwrap().to_string();
-    //println!("{:?}", &new_avt);
-
-    let map2 = DISCORD_WEBHOOK_EMOJI.lock().unwrap();
-
-
-    let message = format!("{} {}",map2.get(&dwhd).unwrap(),msg);
+    let new_avt = lock.get(&whname).unwrap().to_string();
+    let message = format!("{} {}",app_data.emoji_map.get(&dwhd).unwrap(),msg);
 
     
     let request_obj = json!({
@@ -115,41 +74,71 @@ fn webhook(app_data: State<AppData>, evt: String, mut msg: String, name: String)
     let _res = client.post(app_data.discord_url.as_str())
         .json(&request_obj)
         .send().unwrap();
-
+    
+    println!("{}", console_buffer);
     //println!("{:?}",res);
 }
 
 
 struct AppData {
     my_name: String,
-    discord_url: String
+    discord_url: String,
+    avatar_themes: Vec<String>,
+    avatar_dict: Mutex<HashMap<String, String>>,
+    emoji_map: HashMap<char, String>
 }
 
 impl AppData {
-    pub fn new(name: String, discord_url: String) -> AppData{
+    pub fn new(name: String, discord_url: String, avatar_themes:Vec<String>, avatar_dict: Mutex<HashMap<String, String>>, emoji_map: HashMap<char, String>) -> AppData{
         AppData {
             my_name: name,
-            discord_url: discord_url
+            discord_url: discord_url,
+            avatar_themes: avatar_themes,
+            avatar_dict: avatar_dict,
+            emoji_map: emoji_map
         }
     }
 }
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    println!("{:?}", args);
+    // println!("{:?}", args);
     let my_name = &args[1];
     let my_url = &args[2];
     let my_port = args[3].parse::<u16>().unwrap();
     let discord_url = &args[4];
 
-    let app_data = AppData::new(my_name.clone(),discord_url.clone());
+    let mut emoji_map = HashMap::new();
+    emoji_map.insert('j', ":wave:".to_string());           // Join
+    emoji_map.insert('l', ":x:".to_string());              // Leave
+    emoji_map.insert('s', ":floppy_disk:".to_string());    // Save
+    emoji_map.insert('b', ":recycle:".to_string());        // Backup
+    emoji_map.insert('c', ":speech_balloon:".to_string()); // Chat
+    emoji_map.insert('d', ":bangbang:".to_string());       // CMD
+
+    let avatar_themes = vec![
+        "frogideas".to_string(),
+        "sugarsweets".to_string(),
+        "heatwave".to_string(),
+        "daisygarden".to_string(),
+        "seascape".to_string(),
+        "summerwarmth".to_string(),
+        "bythepool".to_string(),
+        "duskfalling".to_string(),
+        "berrypie".to_string()
+        ];
+
+
+    let app_data = AppData::new(my_name.clone(),discord_url.clone(), avatar_themes, Mutex::new(HashMap::new()), emoji_map);
 
     let main_mount = format!("/{}", my_url);
 
     let config = Config::build(Environment::Staging)
         .port(my_port)
+        .log_level(LoggingLevel::Off)
         .finalize()
         .unwrap();
-
+    println!("Running the AstroChatWebhook forwarder..");
+    println!("Waiting for input at http://localhost:{}/{}", my_port, my_url);
     rocket::custom(config).manage(app_data).mount(&main_mount, routes![webhook]).launch();
 }
